@@ -3,9 +3,9 @@
 {% load cache %}
 
 {% block content %}
-
-    {% include "includes/menu.html" with index=True %}
     {% cache 20 index_page %}
+        
+        {% include "includes/menu.html" with index=True %}
         <div class="container">
             <h1> Последние обновления на сайте</h1>
                 <!-- Вывод ленты записей -->
@@ -14,10 +14,9 @@
                         {% include "includes/post_item.html" with post=post %}
                     {% endfor %}
         </div>
-    {% endcache %}
             <!-- Вывод паджинатора -->
             {% if page.has_other_pages %}
                 {% include "includes/paginator.html" with items=page paginator=paginator%}
             {% endif %}
-
+    {% endcache %}
 {% endblock %}

@@ -1,21 +1,19 @@
-from django.test import TestCase, Client
-from django.urls import reverse
-from django.contrib.auth import get_user_model
-from django.core.cache import cache
-from django.test import override_settings
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.conf import settings
-from django.core.files.base import File
-
 import tempfile
-from io import BytesIO
-import os
-from PIL import Image
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, Client, override_settings
+from django.urls import reverse
 
 from .models import Post, Group, Comment, Follow
 from yatube import settings
 
-#POST_CACHES={'default': {'BACKEND': 'django.core.cache.backends.dummy.DummyCache'}}
+DUMMY_CACHES={
+    'default': {
+        'BACKEND': 'django.core.cache.backends.dummy.DummyCache'
+    }
+}
 
 User = get_user_model()
 
@@ -77,6 +75,16 @@ class UserIsAuthorizedTests(TestCase):
         )
         self.client.force_login(self.new_user)
 
+        self.client.get(reverse(
+            "profile_follow",
+            args=[self.second_user.username]
+            )
+        )
+        self.subscription = Follow.objects.filter(
+            user=self.new_user,
+            author=self.second_user
+        ).count()
+
     def check_text_post(self, url, text, author, group):
         """
         Проверка всех атрибутов поста
@@ -104,12 +112,11 @@ class UserIsAuthorizedTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
     
-    #@override_settings(CACHES=CACHES)
+    @override_settings(CACHES=DUMMY_CACHES)
     def test_create_new_post(self):
         """
         Авторизованный пользователь может опубликовать пост (new)
         """
-        cache.clear()
         self.client.post(
             reverse('new_post'),
             {'text': self.text_for_post, 'group': self.group.id},
@@ -118,13 +125,13 @@ class UserIsAuthorizedTests(TestCase):
         response = self.client.get(reverse('index'))
         self.assertContains(response, self.text_for_post)
     
+    @override_settings(CACHES=DUMMY_CACHES)
     def test_new_post_published(self):
         """
         После публикации поста новая запись появляется на главной странице 
         сайта (index), на персональной странице пользователя (profile),
         и на отдельной странице поста (post)
         """
-        cache.clear()
         post = Post.objects.create(
             text=self.text_for_post, 
             group=self.group,
@@ -141,13 +148,13 @@ class UserIsAuthorizedTests(TestCase):
 
         for url in list_urls:
             self.check_text_post(url, self.text_for_post, self.new_user, self.group)
-     
+
+    @override_settings(CACHES=DUMMY_CACHES) 
     def test_post_can_be_edit_and_view(self):
         """
         Авторизованный пользователь может отредактировать свой пост и его
         содержимое изменится на всех связанных страницах
         """
-        cache.clear()
         text_for_edit_post = "Durum-dum-dum tu-tu-ru-ru-rum"
         self.post_for_edit = Post.objects.create(
             text="My test post #1", 
@@ -196,25 +203,33 @@ class UserIsAuthorizedTests(TestCase):
                 self.group_for_edit_post
             )
     
-    #@override_settings(CACHES=CACHES)
+    @override_settings(CACHES=DUMMY_CACHES)
     def test_teg_img_and_post_with_img(self):
         """
         1. Проверяет страницу конкретной записи с картинкой: тег <img>
         2. Проверяет, что на главной странице, на странице профайла и на 
         странице группы пост с картинкой отображается корректно, с тегом <img>
         """
-        cache.clear()
-
-        file_obj = BytesIO()
-        image = Image.new("RGBA", size=(150, 150), color='white')
-        image.save(file_obj, 'png')
-        file_obj.seek(0)
+        small_gif = (
+            b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x00\x00\x00\x21\xf9\x04'
+            b'\x01\x0a\x00\x01\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02'
+            b'\x02\x4c\x01\x00\x3b'
+        )
+        uploaded = SimpleUploadedFile(
+            name='small.gif',
+            content=small_gif,
+            content_type='image/gif'
+        )
+        # file_obj = BytesIO()
+        # image = Image.new("RGBA", size=(150, 150), color='white')
+        # image.save(file_obj, 'png')
+        # file_obj.seek(0)
 
         post = Post.objects.create(
             author=self.new_user,
             text=self.text_for_post,
             group=self.group,
-            image=File(file_obj, name='file.png')
+            image=uploaded # File(file_obj, name='file.png')
         )
 
         response_list = [
@@ -260,7 +275,7 @@ class UserIsAuthorizedTests(TestCase):
         """
         Тесты, которые проверяют работу кэша
         """
-        test_text = "Test post for cheack cache"
+        test_text = "Test post for check cache"
         response = self.client.get(reverse('index'))
         post = Post.objects.create(
             text=test_text,
@@ -270,21 +285,16 @@ class UserIsAuthorizedTests(TestCase):
         response = self.client.get(reverse('index'))
         self.assertNotContains(response, test_text)
 
-    def test_follow_and_unfollow(self):
+    def test_follow(self):
         """
-        Авторизованный пользователь может подписываться на других пользователей и удалять их из подписок.
+        Авторизованный пользователь может подписываться на других пользователей
         """
-        self.client.get(reverse(
-            "profile_follow",
-            args=[self.second_user.username]
-            )
-        )
-        subscription = Follow.objects.filter(
-            user=self.new_user,
-            author=self.second_user
-        ).count()
-        self.assertNotEqual(subscription, 0)
-
+        self.assertEqual(self.subscription, 1)
+    
+    def test_unfollow(self):
+        """
+        Авторизованный пользователь может удалять других юзеров из подписок.
+        """
         self.client.get(reverse(
             "profile_unfollow",
             args=[self.second_user.username]
@@ -296,24 +306,27 @@ class UserIsAuthorizedTests(TestCase):
         ).count()
         self.assertEqual(subscription, 0)
 
-    def test_follow_index(self):
+
+
+    @override_settings(CACHE=DUMMY_CACHES)
+    def test_follow_index_subscribe(self):
         """
         Новая запись пользователя появляется в ленте тех, кто на него подписан 
         и не появляется в ленте тех, кто не подписан на него.
         """
-        cache.clear()
-        self.client.post(reverse(
-            "profile_follow",
-            args=[self.second_user.username]
-            )
-        )
         response = self.client.get(reverse('follow_index'))
         self.assertContains(response, self.post_second.text, status_code=200)
-
+    
+    @override_settings(CACHE=DUMMY_CACHES)
+    def test_folllow_index_unsubscribe(self):
         self.client.logout()
         self.client.force_login(self.second_user)
         response = self.client.get(reverse('follow_index'))
-        self.assertNotContains(response, self.post_second.text, status_code=200)
+        self.assertNotContains(
+            response,
+            self.post_second.text,
+            status_code=200
+        )
     
     def test_comment_post(self):
         """
@@ -334,14 +347,16 @@ class UserIsAuthorizedTests(TestCase):
                 
             }
         )
-        comment = Comment.objects.filter(author=self.new_user.id)
+        comment = Comment.objects.first()
         response = self.client.get(
             reverse(
                 'post', 
                 args=[self.second_user.username, self.post_second.id]
             )
         )
-        self.assertContains(response, 'First test comment')
+        self.assertContains(response, comment.text)
+        self.assertContains(response, comment.author.username)
+        self.assertContains(response, comment.post.id)
     
     def test_no_auth_comment_post(self):
         """
@@ -356,4 +371,9 @@ class UserIsAuthorizedTests(TestCase):
                     'post_id': 1}), 
             {'text': 'текст коментария'}
         )
-        self.assertRedirects(response, f'/auth/login/?next=/{self.second_user}/1/comment')
+        comments_count = Comment.objects.all().count()
+        self.assertNotEqual(response, comments_count)
+        self.assertRedirects(
+            response,
+            f'/auth/login/?next=/{self.second_user}/1/comment'
+        )

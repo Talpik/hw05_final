@@ -1,13 +1,11 @@
-from django.shortcuts import get_object_or_404, redirect, render, reverse
-from django.core.paginator import Paginator
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.cache import cache_page
+from django.core.paginator import Paginator
+from django.shortcuts import get_object_or_404, redirect, render, reverse
 
-from .forms import PostForm, CommentForm
 from .models import Post, Group, User, Comment, Follow
+from .forms import PostForm, CommentForm
 
 
-#@cache_page(60)
 def index(request):
     """ 
     The function view latest 10 posts in this blog. 
@@ -29,6 +27,7 @@ def index(request):
         "index.html", 
         {"page": page, "paginator": paginator}
     )
+
 
 def group_posts(request, slug):
     """ 
@@ -73,10 +72,10 @@ def profile(request, username):
     page_number = request.GET.get('page')
     page = paginator.get_page(page_number)
     following = False
-    if request.user.is_authenticated:
-        subscription = Follow.objects.filter(user=request.user, author=author)
-        if subscription.exists():
-            following = True
+    following = request.user.is_authenticated and Follow.objects.filter(
+        user=request.user, author=author
+    ).exists()
+
     return render(
         request,
         'profile.html', 
@@ -88,10 +87,11 @@ def profile(request, username):
         }
     )
 
+
 @login_required
 def follow_index(request):
     post_list = Post.objects.select_related('author').filter(
-        author__following__user = request.user
+        author__following__user=request.user
     )
     paginator = Paginator(post_list, 10)
     page_number = request.GET.get('page')
@@ -101,6 +101,7 @@ def follow_index(request):
         "follow.html", 
         {"page": page, "paginator": paginator}
     )
+
 
 @login_required
 def profile_follow(request, username):
@@ -112,6 +113,7 @@ def profile_follow(request, username):
             author=author
         )
     return redirect('profile', username=username)
+
 
 @login_required
 def profile_unfollow(request, username):
@@ -138,6 +140,7 @@ def post_view(request, username, post_id):
             'form': form
         }
     )
+
 
 @login_required
 def add_comment(request, username, post_id):
