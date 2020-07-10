@@ -2,7 +2,8 @@
 {% block title %} Ваши подписки {% endblock %}
 
 {% block content %}
-    {% include "includes/menu.html" with index=True %}
+
+        {% include "includes/menu.html" with follow=True %}
         <div class="container">
             <h1> Посты авторов на которые вы подписаны</h1>
                 <!-- Вывод ленты записей -->
