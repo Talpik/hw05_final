@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ author.firstname }} {{ author.lastname }}{% endblock %}
+{% block content %}
+{% load user_filters %}
+{% load static %}
+<link rel="stylesheet" type="text/css" href="{% static 'posts/style.css'%}">
+<main role="main" class="conteiner">
+        <div class="row">
+                {% include "includes/card_author.html" with author=author post=post %}
+
+                <div class="col-md-9">
+                    {% include "includes/card_one_post.html" with author=author post=post %}
+                    {% include "includes/comments.html" with form=form comments=comments %}          
+                </div>
+        </div>
+</main>
+{% endblock %}

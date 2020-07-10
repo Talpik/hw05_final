@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{author.firstname}} {{author.lastname}}{% endblock %}
+{% block content %}
+{% load user_filters %}
+{% load static %}
+<link rel="stylesheet" type="text/css" href="{% static 'posts/style.css'%}">
+<main role="main" class="conteiner">
+        <div class="row">
+                {% include "includes/card_author.html" with author=author post=post %}
+
+                <div class="col-md-9">
+                        {% if page %}
+                                {% for post in page %}
+                                        {% include "includes/post_item.html" with post=post %}
+                                {% endfor %}
+                                
+                                {% if page.has_other_pages %}
+                                        {% include "includes/paginator.html" with items=page paginator=paginator %}
+                                {% endif %}
+                        {% elif post %}
+                                {% include "includes/post_item.html" with post=post %}
+                        {% else %}
+                                Здесь нет записей
+                        {% endif %}
+                </div>
+        </div>
+</main>
+{% endblock %}
