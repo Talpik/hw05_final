@@ -1,15 +1,13 @@
-import tempfile
-
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.cache import cache
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 
 from .models import Post, Group, Comment, Follow
-from yatube import settings
 
-DUMMY_CACHES={
+
+DUMMY_CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.dummy.DummyCache'
     }
@@ -75,16 +73,6 @@ class UserIsAuthorizedTests(TestCase):
         )
         self.client.force_login(self.new_user)
 
-        self.client.get(reverse(
-            "profile_follow",
-            args=[self.second_user.username]
-            )
-        )
-        self.subscription = Follow.objects.filter(
-            user=self.new_user,
-            author=self.second_user
-        ).count()
-
     def check_text_post(self, url, text, author, group):
         """
         Проверка всех атрибутов поста
@@ -147,7 +135,12 @@ class UserIsAuthorizedTests(TestCase):
         ]
 
         for url in list_urls:
-            self.check_text_post(url, self.text_for_post, self.new_user, self.group)
+            self.check_text_post(
+                url,
+                self.text_for_post,
+                self.new_user,
+                self.group
+            )
 
     @override_settings(CACHES=DUMMY_CACHES) 
     def test_post_can_be_edit_and_view(self):
@@ -182,8 +175,9 @@ class UserIsAuthorizedTests(TestCase):
 
         list_urls = [
             reverse('index'),
-            reverse('profile',
-            kwargs={'username': self.new_user.username}
+            reverse(
+                'profile',
+                kwargs={'username': self.new_user.username}
             ),
             reverse(
                 'post', 
@@ -220,16 +214,12 @@ class UserIsAuthorizedTests(TestCase):
             content=small_gif,
             content_type='image/gif'
         )
-        # file_obj = BytesIO()
-        # image = Image.new("RGBA", size=(150, 150), color='white')
-        # image.save(file_obj, 'png')
-        # file_obj.seek(0)
 
         post = Post.objects.create(
             author=self.new_user,
             text=self.text_for_post,
             group=self.group,
-            image=uploaded # File(file_obj, name='file.png')
+            image=uploaded
         )
 
         response_list = [
@@ -242,7 +232,6 @@ class UserIsAuthorizedTests(TestCase):
         for page in response_list:
             response = self.client.get(page)
             self.assertContains(response, '<img')
-    
     
     def test_security_non_img(self):
         """
@@ -276,25 +265,50 @@ class UserIsAuthorizedTests(TestCase):
         Тесты, которые проверяют работу кэша
         """
         test_text = "Test post for check cache"
-        response = self.client.get(reverse('index'))
         post = Post.objects.create(
             text=test_text,
             author=self.new_user,
             group=self.group
         )
-        response = self.client.get(reverse('index'))
-        self.assertNotContains(response, test_text)
+        response_1 = self.client.get(reverse('index'))
+        self.assertContains(response_1, post.text)
+        
+        post.delete()
+        response_2 = self.client.get(reverse('index'))
+        self.assertEqual(response_1.content, response_2.content)
+        
+        cache.clear()
+        response_3 = self.client.get(reverse('index'))
+        self.assertNotEqual(response_1.content, response_3.content)
 
     def test_follow(self):
         """
         Авторизованный пользователь может подписываться на других пользователей
         """
-        self.assertEqual(self.subscription, 1)
+        self.client.get(reverse( 
+            "profile_follow", 
+            args=[self.second_user.username] 
+            ) 
+        )
+        follower = Follow.objects.get(user=self.new_user)
+        following = Follow.objects.get(author=self.second_user)
+        self.assertEqual(follower.pk, following.pk)
     
     def test_unfollow(self):
         """
         Авторизованный пользователь может удалять других юзеров из подписок.
         """
+        self.client.get(reverse( 
+            "profile_follow", 
+            args=[self.second_user.username] 
+            ) 
+        )
+        subscription = Follow.objects.filter(
+            user=self.new_user,
+            author=self.second_user
+        ).count()
+        self.assertEqual(subscription, 1)
+
         self.client.get(reverse(
             "profile_unfollow",
             args=[self.second_user.username]
@@ -306,19 +320,30 @@ class UserIsAuthorizedTests(TestCase):
         ).count()
         self.assertEqual(subscription, 0)
 
-
-
     @override_settings(CACHE=DUMMY_CACHES)
     def test_follow_index_subscribe(self):
         """
-        Новая запись пользователя появляется в ленте тех, кто на него подписан 
-        и не появляется в ленте тех, кто не подписан на него.
+        Новая запись пользователя появляется в ленте тех, кто на него подписан. 
         """
+        self.client.get(reverse( 
+            "profile_follow", 
+            args=[self.second_user.username] 
+            ) 
+        )
         response = self.client.get(reverse('follow_index'))
         self.assertContains(response, self.post_second.text, status_code=200)
     
     @override_settings(CACHE=DUMMY_CACHES)
     def test_folllow_index_unsubscribe(self):
+        """
+        Новая запись пользователя не появляется в ленте тех, 
+        кто не подписан на него.
+        """
+        self.client.get(reverse( 
+            "profile_follow", 
+            args=[self.second_user.username] 
+            ) 
+        )
         self.client.logout()
         self.client.force_login(self.second_user)
         response = self.client.get(reverse('follow_index'))
@@ -343,8 +368,7 @@ class UserIsAuthorizedTests(TestCase):
             {
                 'text': 'First test comment',
                 'post': self.post_second.id,
-                'author': self.new_user.id,
-                
+                'author': self.new_user.id,  
             }
         )
         comment = Comment.objects.first()
@@ -371,8 +395,7 @@ class UserIsAuthorizedTests(TestCase):
                     'post_id': 1}), 
             {'text': 'текст коментария'}
         )
-        comments_count = Comment.objects.all().count()
-        self.assertNotEqual(response, comments_count)
+        self.assertEqual(Comment.objects.count(), 0)
         self.assertRedirects(
             response,
             f'/auth/login/?next=/{self.second_user}/1/comment'
